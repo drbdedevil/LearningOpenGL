@@ -8,6 +8,14 @@
 
 #pragma comment (lib, "opengl32.lib")
 
+void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods) 
+{
+    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) 
+    {
+        std::cout << "Left mouse button pressed" << std::endl;
+    }
+}
+
 // Шейдеры
 const char* vertexShaderSource = R"(
     #version 330 core
@@ -85,7 +93,7 @@ int main() {
     glDeleteShader(fragmentShader);
 
     // Вершинные данные
-     // Вершинные данные
+    // Вершинные данные
     float vertices[] = {
           0.0f,  0.5f, -0.5f,
           0.5f, -0.5f, 0.0f,
@@ -146,10 +154,16 @@ int main() {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+    // Настройка размера.
+    // glPointSize(10.f);
+    glLineWidth(3.5f);
+
+    glfwSetMouseButtonCallback(window, MouseButtonCallback);
+
     // Главный цикл
     while (!glfwWindowShouldClose(window)) {
         // Очистка экрана
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        glClearColor(0.075f, 0.075f, 0.075f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
         // Создаём матрицу трансформации

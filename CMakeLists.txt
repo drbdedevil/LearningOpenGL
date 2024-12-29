@@ -17,6 +17,12 @@ set(CMAKE_CXX_STANDARD 20)
 # sources
 set(SOURCES source/LearningOpenGL/main.cpp)
 
+set(MINESWEEPER_SOURCES source/MinesweeperGame/main.cpp)
+
+# My libs
+add_library(MinesweeperLib STATIC source/MinesweeperGame/Game/MinesweeperGame.cpp source/MinesweeperGame/Game/MinesweeperGame.h)
+add_library(EngineLib STATIC source/Engine/CameraManager.cpp source/Engine/CameraManager.h)
+
 # find libs
 find_package(OpenGL REQUIRED)
 find_package(glfw3 REQUIRED)
@@ -25,9 +31,23 @@ find_package(glew REQUIRED)
 
 # targets
 add_executable(${PROJECT_NAME} ${SOURCES})
+add_executable(${PROJECT_NAME}MinesweeperGame ${MINESWEEPER_SOURCES})
 
 # targets
 target_link_libraries(${PROJECT_NAME} PRIVATE glfw OpenGL::GL glm::glm GLEW::GLEW)
+target_link_libraries(${PROJECT_NAME}MinesweeperGame PRIVATE MinesweeperLib)
+# target_link_libraries(${PROJECT_NAME}MinesweeperGame PUBLIC glfw OpenGL::GL glm::glm GLEW::GLEW)
+target_link_libraries(MinesweeperLib PUBLIC EngineLib glfw OpenGL::GL glm::glm GLEW::GLEW)
+
+target_link_libraries(EngineLib PRIVATE glfw OpenGL::GL glm::glm GLEW::GLEW)
+target_link_libraries(MinesweeperLib PUBLIC EngineLib)
+target_link_libraries(${PROJECT_NAME}MinesweeperGame PRIVATE MinesweeperLib)
+
+# inlcudes
+set(TARGETS ${PROJECT_NAME} ${PROJECT_NAME}MinesweeperGame MinesweeperLib)
+foreach(target IN LISTS TARGETS)
+    target_include_directories(${target} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/source)
+endforeach()
 
 # if (WIN32)
     # target_link_options(${PROJECT_NAME} PRIVATE /SUBSYSTEM:WINDOWS)
