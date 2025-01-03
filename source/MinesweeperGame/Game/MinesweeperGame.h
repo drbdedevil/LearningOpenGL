@@ -1,13 +1,18 @@
 class PrimitiveShape
 {
 public:
-    PrimitiveShape();
+    PrimitiveShape(int id);
     ~PrimitiveShape();
 
     virtual void Update(glm::vec3 Location) = 0;
 protected:
     unsigned int shaderProgram;
 
+    unsigned int VAO;
+    unsigned int VBO;
+    
+    int ID;
+    glm::vec3 FramebufferColor;
 private:
 	const char* vertexShaderSource = R"(
         #version 330 core
@@ -36,14 +41,11 @@ private:
 class Cube : public PrimitiveShape
 {
 public:
-    Cube();
+    Cube(int id);
     ~Cube();
 
     virtual void Update(glm::vec3 Location) override;
 private:
-    unsigned int VAO;
-    unsigned int VBO;
-
     float Vertices[72] = {
         // ѕередн€€ грань
         -0.5f, 0.5f, -0.5f, // A
@@ -83,5 +85,14 @@ private:
 
         0.5f, 0.5f, -0.5f,  // D
         0.5f, -0.5f, -0.5f  // H
+    };
+    float TriangleVertices[18] = {
+        -0.5f, -0.5f, 0.5f, // F
+        0.5f, -0.5f, 0.5f,   // G
+        0.5f, 0.5f, 0.5f,   // C
+
+        -0.5f, -0.5f, 0.5f, // F
+        0.5f, 0.5f, 0.5f,   // C
+        -0.5f, 0.5f, 0.5f   // B
     };
 };

@@ -11,3 +11,17 @@ CameraManager* CameraManager::GetCameraManager()
 
     return Camera;
 }
+
+void CameraManager::AddCameraPosition(const glm::vec3& AddPosition)
+{
+    Position = Position + AddPosition;
+    Point = Point + AddPosition;
+}
+
+void CameraManager::DeleteCamera()
+{
+    if (Camera)
+    {
+        delete Camera;
+    }
+}
