@@ -5,8 +5,125 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/random.hpp>
 
-#include "MinesweeperGame.h"
+#include "ExpansionGame.h"
 #include <Engine/CameraManager.h>
+#include <iostream>
+
+// --------------------------------------- Game ----------------------------------------
+
+int ExpansionGame::NumberOfObjects = 1;
+ExpansionGame* ExpansionGame::Game = nullptr;
+std::vector<std::vector<Cube*>> ExpansionGame::Map = std::vector<std::vector<Cube*>>();
+std::unordered_map<int, Cube*> ExpansionGame::idMap = std::unordered_map<int, Cube*>();
+std::vector<std::vector<glm::vec3>> ExpansionGame::CubePositions = std::vector<std::vector<glm::vec3>>();
+
+ExpansionGame* ExpansionGame::CreateInstance(int Width, int Height)
+{
+	if (!Game)
+	{
+		Game = new ExpansionGame();
+		Game->Map.clear();
+		if (Width < 0 || Height < 0)
+		{
+			return nullptr;
+		}
+		Game->Map.resize(Width);
+		Game->CubePositions.resize(Width);
+
+		float XPos = 0.f;
+		float YPos = 0.f;
+		float Offset = 1.05f;
+
+		for (size_t i = 0; i < Width; ++i)
+		{
+			Game->Map[i] = std::vector<Cube*>();
+			Game->Map[i].resize(Height);
+			Game->CubePositions[i].resize(Height);
+
+			for (size_t j = 0; j < Height; ++j)
+			{
+				Cube* NewCube = new Cube(Game->NumberOfObjects++);
+				Game->Map[i][j] = NewCube;
+				Game->CubePositions[i][j] = glm::vec3(XPos, YPos, 0.f);
+
+				Game->idMap[Game->Map[i][j]->GetID()] = NewCube;
+				// std::cout << Game->Map[i][j]->GetID() << " - " << NewCube << std::endl;
+
+				YPos = YPos + Offset;
+			}
+			XPos = XPos + Offset;
+			YPos = 0.f;
+		}
+	}
+
+	return Game;
+}
+
+void ExpansionGame::Update()
+{
+	if (Game)
+	{
+		for (size_t i = 0; i < Game->Map.size(); ++i)
+		{
+			for (size_t j = 0; j < Game->Map[i].size(); ++j)
+			{
+				if (Game->Map[i][j])
+				{
+					Game->Map[i][j]->Update(Game->CubePositions[i][j]);
+				}
+			}
+		}
+	}
+}
+
+Cube* ExpansionGame::GetCubeByID(int ID) const
+{
+	if (Game)
+	{
+		/*for (const auto& [key, value] : Game->idMap)
+		{
+			if (key == ID)
+			{
+				std::cout << "Key: " << key << ", Address: " << value->GetID() << "\n";
+			}
+			
+		}*/
+
+		auto it = Game->idMap.find(ID);
+		if (it != Game->idMap.end())
+		{
+			std::cout << it->first << ", Address: "<< it->second << std::endl;
+			return it->second;
+		}
+	}
+
+	return nullptr;
+}
+
+ExpansionGame::~ExpansionGame()
+{
+	if (!Game) return;
+
+	for (size_t i = 0; i < Game->Map.size(); ++i)
+	{
+		for (size_t j = 0; j < Game->Map[i].size(); ++j)
+		{
+			if (Game->Map[i][j])
+			{
+				delete Game->Map[i][j];
+			}
+		}
+		Game->Map[i].shrink_to_fit();
+		Game->CubePositions[i].clear();
+	}
+	Game->Map.shrink_to_fit();
+	Game->idMap.clear();
+	Game->CubePositions.clear();
+
+	delete Game;
+}
+
+// -------------------------------------- Объекты --------------------------------------
 
 PrimitiveShape::PrimitiveShape(int id)
 {
@@ -55,6 +172,7 @@ Cube::~Cube()
 
 void Cube::Update(glm::vec3 Location)
 {
+	glEnable(GL_DEPTH_TEST);
 	// Отрисовка куба линиями
 	
 	glBindVertexArray(VAO);
@@ -121,20 +239,27 @@ void Cube::Update(glm::vec3 Location)
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
 	GLint colorCell = glGetUniformLocation(shaderProgram, "color");
-	// glUniform4f(colorCell, 0.8f, 0.8f, 0.8f, 1.f);
-	glUniform4f(colorCell, FramebufferColor.x, FramebufferColor.y, FramebufferColor.z, 1.f);
+	glUniform4f(colorCell, Color.x, Color.y, Color.z, 1.f);
+	// glUniform4f(colorCell, FramebufferColor.x, FramebufferColor.y, FramebufferColor.z, 1.f);
 
 	glUseProgram(shaderProgram);
 	glBindVertexArray(VAO);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 
 	// Рендеринг уникальных цветов
+	glDisable(GL_DEPTH_TEST);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, CameraMan->fbo);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glUseProgram(shaderProgram);
 
+	glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
+	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+	glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+
 	glUniform4f(colorCell, FramebufferColor.x, FramebufferColor.y, FramebufferColor.z, 1.f);
+
+	glDrawArrays(GL_TRIANGLES, 0, 6);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }

@@ -5,7 +5,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/random.hpp>
-#include <MinesweeperGame/Game/MinesweeperGame.h>
+#include <ExpansionGame/Game/ExpansionGame.h>
 #include <Engine/CameraManager.h>
 
 #pragma comment (lib, "opengl32.lib")
@@ -19,7 +19,7 @@ void MouseCallback(GLFWwindow* window, int button, int action, int mods)
         double xpos, ypos;
         glfwGetCursorPos(window, &xpos, &ypos);
 
-        std::cout << "(" << xpos << ", " << ypos << ")" << std::endl;
+        // std::cout << "(" << xpos << ", " << ypos << ")" << std::endl;
 
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
@@ -34,6 +34,15 @@ void MouseCallback(GLFWwindow* window, int button, int action, int mods)
         if (clickedObjectID > 0) 
         {
             std::cout << "Объект с ID: " << clickedObjectID << " выбран." << std::endl;
+
+            if (ExpansionGame::Instance())
+            {
+                if (Cube* findedCube = ExpansionGame::Instance()->GetCubeByID(clickedObjectID))
+                {
+                    std::cout << findedCube->GetID() << " выбран." << std::endl;
+                    findedCube->SetColor(glm::vec3(0.1f, 0.7f, 0.15f));
+                }
+            }
         }
         else 
         {
@@ -143,16 +152,18 @@ int main()
     }
     CreateFBO();
 
-    Cube cube(1);
-    Cube cube2(2000);
-    Cube cube3(3000000);
+    /*Cube cube(1);
+    Cube cube2(2);
+    Cube cube3(3);
 
-    Cube cube4(8778);
-    Cube cube5(57568568);
-    Cube cube6(63252);
-    Cube cube7(24234);
-    Cube cube8(2347668);
-    Cube cube9(9565656);
+    Cube cube4(4);
+    Cube cube5(5);
+    Cube cube6(6);
+    Cube cube7(7);
+    Cube cube8(8);
+    Cube cube9(9);*/
+
+    ExpansionGame::CreateInstance(20, 20);
 
     CameraManager* CameraMan = CameraManager::GetCameraManager();
     if (CameraMan)
@@ -173,16 +184,21 @@ int main()
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
-    while (!glfwWindowShouldClose(window)) 
+    while (!glfwWindowShouldClose(window))
     {
-        glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+        glClearColor(0.5f, 0.5f, 0.6f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         
         float time = glfwGetTime();
         float zCube = sin(time);
         float zCube2 = cos(time);
 
-        cube.Update(glm::vec3(1.05f, 0.f, 0.f));
+        if (ExpansionGame::Instance())
+        {
+            ExpansionGame::Instance()->Update();
+        }
+
+        /*cube.Update(glm::vec3(1.05f, 0.f, 0.f));
         cube2.Update(glm::vec3(-1.05f, 0.f, 0.f));
         cube3.Update(glm::vec3(0.f, 0.f, 0.f));
 
@@ -191,7 +207,7 @@ int main()
         cube6.Update(glm::vec3(0.f, 1.05f, 0.f));
         cube7.Update(glm::vec3(1.05f, -1.05f, 0.f));
         cube8.Update(glm::vec3(-1.05f, -1.05f, 0.f));
-        cube9.Update(glm::vec3(0.f, -1.05f, 0.f));
+        cube9.Update(glm::vec3(0.f, -1.05f, 0.f));*/
 
         if (CameraMan)
         {

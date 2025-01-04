@@ -1,3 +1,36 @@
+#pragma once
+
+#include <vector>
+#include <unordered_map>
+
+// --------------------------------------- Game ----------------------------------------
+class Cube;
+
+class ExpansionGame
+{
+public:
+    static ExpansionGame* CreateInstance(int Width, int Height);
+    static ExpansionGame* Instance() { return Game; }
+    void Update();
+
+    Cube* GetCubeByID(int ID) const;
+    
+    ~ExpansionGame();
+private:
+    ExpansionGame() {};
+
+    static ExpansionGame* Game;
+
+    static std::vector<std::vector<Cube*>> Map;
+    static std::unordered_map<int, Cube*> idMap;
+    static std::vector<std::vector<glm::vec3>> CubePositions;
+
+    static int NumberOfObjects;
+};
+
+
+// -------------------------------------- Objects --------------------------------------
+
 class PrimitiveShape
 {
 public:
@@ -5,6 +38,9 @@ public:
     ~PrimitiveShape();
 
     virtual void Update(glm::vec3 Location) = 0;
+
+    int GetID() const { return ID; }
+    void SetColor(const glm::vec3& NewColor) { Color = NewColor; }
 protected:
     unsigned int shaderProgram;
 
@@ -12,6 +48,7 @@ protected:
     unsigned int VBO;
     
     int ID;
+    glm::vec3 Color = glm::vec3(0.7f, 0.7f, 0.65f);
     glm::vec3 FramebufferColor;
 private:
 	const char* vertexShaderSource = R"(
