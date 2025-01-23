@@ -1,6 +1,6 @@
 # general info
 cmake_minimum_required(VERSION 3.30)
-set(PROJECT_NAME MaxOpenGL)
+set(PROJECT_NAME MaxVulkan)
 project(${PROJECT_NAME} VERSION 1.0.0)
 
 # common options
@@ -24,10 +24,8 @@ add_library(ExpansionLib STATIC source/ExpansionGame/Game/ExpansionGame.cpp sour
 add_library(EngineLib STATIC source/Engine/CameraManager.cpp source/Engine/CameraManager.h)
 
 # find libs
-find_package(OpenGL REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
-find_package(glew REQUIRED)
 find_package(VulkanLoader REQUIRED)
 
 # targets
@@ -35,12 +33,12 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 add_executable(${PROJECT_NAME}ExpansionGame ${EXPANSION_SOURCES})
 
 # targets
-target_link_libraries(${PROJECT_NAME} PRIVATE glfw OpenGL::GL glm::glm GLEW::GLEW Vulkan::Loader)
+target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Loader glfw glm::glm)
 target_link_libraries(${PROJECT_NAME}ExpansionGame PRIVATE ExpansionLib)
 # target_link_libraries(${PROJECT_NAME}ExpansionGame PUBLIC glfw OpenGL::GL glm::glm GLEW::GLEW)
-target_link_libraries(ExpansionLib PUBLIC EngineLib glfw OpenGL::GL glm::glm GLEW::GLEW Vulkan::Loader)
+target_link_libraries(ExpansionLib PUBLIC EngineLib Vulkan::Loader glfw glm::glm)
 
-target_link_libraries(EngineLib PRIVATE glfw OpenGL::GL glm::glm GLEW::GLEW Vulkan::Loader)
+target_link_libraries(EngineLib PRIVATE Vulkan::Loader glfw glm::glm)
 target_link_libraries(ExpansionLib PUBLIC EngineLib)
 target_link_libraries(${PROJECT_NAME}ExpansionGame PRIVATE ExpansionLib)
 
