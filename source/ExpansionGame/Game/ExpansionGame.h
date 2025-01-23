@@ -28,7 +28,6 @@ private:
     static int NumberOfObjects;
 };
 
-
 // -------------------------------------- Objects --------------------------------------
 
 class PrimitiveShape
@@ -46,7 +45,10 @@ protected:
 
     unsigned int VAO;
     unsigned int VBO;
-    
+
+    unsigned int VAOPlane;
+    unsigned int VBOPlane;
+
     int ID;
     glm::vec3 Color = glm::vec3(0.7f, 0.7f, 0.65f);
     glm::vec3 FramebufferColor;

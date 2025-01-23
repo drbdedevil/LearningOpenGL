@@ -28,18 +28,19 @@ find_package(OpenGL REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
 find_package(glew REQUIRED)
+find_package(VulkanLoader REQUIRED)
 
 # targets
 add_executable(${PROJECT_NAME} ${SOURCES})
 add_executable(${PROJECT_NAME}ExpansionGame ${EXPANSION_SOURCES})
 
 # targets
-target_link_libraries(${PROJECT_NAME} PRIVATE glfw OpenGL::GL glm::glm GLEW::GLEW)
+target_link_libraries(${PROJECT_NAME} PRIVATE glfw OpenGL::GL glm::glm GLEW::GLEW Vulkan::Loader)
 target_link_libraries(${PROJECT_NAME}ExpansionGame PRIVATE ExpansionLib)
 # target_link_libraries(${PROJECT_NAME}ExpansionGame PUBLIC glfw OpenGL::GL glm::glm GLEW::GLEW)
-target_link_libraries(ExpansionLib PUBLIC EngineLib glfw OpenGL::GL glm::glm GLEW::GLEW)
+target_link_libraries(ExpansionLib PUBLIC EngineLib glfw OpenGL::GL glm::glm GLEW::GLEW Vulkan::Loader)
 
-target_link_libraries(EngineLib PRIVATE glfw OpenGL::GL glm::glm GLEW::GLEW)
+target_link_libraries(EngineLib PRIVATE glfw OpenGL::GL glm::glm GLEW::GLEW Vulkan::Loader)
 target_link_libraries(ExpansionLib PUBLIC EngineLib)
 target_link_libraries(${PROJECT_NAME}ExpansionGame PRIVATE ExpansionLib)
 

@@ -163,7 +163,7 @@ int main()
     Cube cube8(8);
     Cube cube9(9);*/
 
-    ExpansionGame::CreateInstance(20, 20);
+    ExpansionGame::CreateInstance(100, 100);
 
     CameraManager* CameraMan = CameraManager::GetCameraManager();
     if (CameraMan)
@@ -184,6 +184,7 @@ int main()
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
+    glLineWidth(1.6f);
     while (!glfwWindowShouldClose(window))
     {
         glClearColor(0.5f, 0.5f, 0.6f, 1.0f);

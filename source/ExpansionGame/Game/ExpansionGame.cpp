@@ -156,6 +156,9 @@ PrimitiveShape::~PrimitiveShape()
 	glDeleteVertexArrays(1, &VAO);
 	glDeleteBuffers(1, &VBO);
 
+	glDeleteVertexArrays(1, &VAOPlane);
+	glDeleteBuffers(1, &VBOPlane);
+
 	glDeleteProgram(shaderProgram);
 }
 
@@ -163,18 +166,7 @@ Cube::Cube(int id) : PrimitiveShape(id)
 {
 	glGenVertexArrays(1, &VAO);
 	glGenBuffers(1, &VBO);
-}
 
-Cube::~Cube()
-{
-	
-}
-
-void Cube::Update(glm::vec3 Location)
-{
-	glEnable(GL_DEPTH_TEST);
-	// Отрисовка куба линиями
-	
 	glBindVertexArray(VAO);
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 
@@ -186,6 +178,34 @@ void Cube::Update(glm::vec3 Location)
 	glBindVertexArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
+	// ----------------------------------------------------------------------------
+
+	glGenVertexArrays(1, &VAOPlane);
+	glGenBuffers(1, &VBOPlane);
+
+	glBindVertexArray(VAOPlane);
+	glBindBuffer(GL_ARRAY_BUFFER, VBOPlane);
+
+	glBufferData(GL_ARRAY_BUFFER, sizeof(TriangleVertices), TriangleVertices, GL_STATIC_DRAW);
+
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+
+	glBindVertexArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+Cube::~Cube()
+{
+	
+}
+
+void Cube::Update(glm::vec3 Location)
+{
+	glEnable(GL_DEPTH_TEST);
+
+	// Отрисовка куба линиями
+	
 	glm::mat4 transform = glm::mat4(1.f);
 	CameraManager* CameraMan = CameraManager::GetCameraManager();
 
@@ -220,45 +240,32 @@ void Cube::Update(glm::vec3 Location)
 	GLint colorLoc = glGetUniformLocation(shaderProgram, "color");
 	glUniform4f(colorLoc, 0.f, 0.f, 0.f, 1.f);
 
-	glUseProgram(shaderProgram);
 	glBindVertexArray(VAO);
-	glLineWidth(2.f);
 	glDrawArrays(GL_LINES, 0, 24);
 
 	// Отрисовка плейна треугольниками
-
-	glBindVertexArray(VAO);
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-
-	glBufferData(GL_ARRAY_BUFFER, sizeof(TriangleVertices), TriangleVertices, GL_STATIC_DRAW);
-
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-	glEnableVertexAttribArray(0);
-
-	glBindVertexArray(0);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
 	GLint colorCell = glGetUniformLocation(shaderProgram, "color");
 	glUniform4f(colorCell, Color.x, Color.y, Color.z, 1.f);
 	// glUniform4f(colorCell, FramebufferColor.x, FramebufferColor.y, FramebufferColor.z, 1.f);
 
-	glUseProgram(shaderProgram);
-	glBindVertexArray(VAO);
+	glBindVertexArray(VAOPlane);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 
 	// Рендеринг уникальных цветов
+
 	glDisable(GL_DEPTH_TEST);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, CameraMan->fbo);
 	// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glUseProgram(shaderProgram);
-
+	
 	glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
 	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 	glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
 	glUniform4f(colorCell, FramebufferColor.x, FramebufferColor.y, FramebufferColor.z, 1.f);
 
+	glUseProgram(shaderProgram);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
