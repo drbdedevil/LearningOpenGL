@@ -15,6 +15,8 @@
 #include <algorithm> // Necessary for std::clamp
 #include <fstream>
 
+static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
+
 #define USE_DEBUG_INFO true
 
 #ifdef NDEBUG
@@ -28,6 +30,9 @@ const uint32_t HEIGHT = 600;
 
 const std::vector<const char*> validationLayers = { "VK_LAYER_KHRONOS_validation" };
 const std::vector<const char*> deviceExtensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+
+uint32_t currentFrame = 0;
+const int MAX_FRAMES_IN_FLIGHT = 2;
 
 // ------------------------------
 
@@ -49,7 +54,7 @@ struct SwapChainSupportDetails
 	std::vector<VkPresentModeKHR> presentModes;
 };
 
-static class Utils
+class Utils
 {
 public:
 	static bool checkExtensionSupport(const char** ExtensionsToCheck, uint32_t ExtensionCount, const std::vector<VkExtensionProperties>& AvailableExtenstions, const char* Object)
@@ -338,10 +343,15 @@ private:
 		glfwInit();
 		// Так как GLFW изначально была создана для контекста OpenGL, нам необходимо сказать, чтобы этот контекст не создавался следующим вызовом:
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+		glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
 		// создание окна:
 		window = glfwCreateWindow(WIDTH, HEIGHT, "MaxVulkan", nullptr, nullptr);
+
+		// Говорим о том, что в glfwSetFramebufferSizeCallback необходимо передать указатель на наше окно
+		glfwSetWindowUserPointer(window, this);
+		// Устанавливаем функция для обратного вызова при изменении размера окна
+		glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 	}
 	void initVulkan()
 	{
@@ -356,7 +366,7 @@ private:
 		createGraphicsPipeline();
 		createFramebuffers();
 		createCommandPool();
-		createCommandBuffer();
+		createCommandBuffers();
 		createSyncObjects();
 	}
 	void mainLoop()
@@ -376,27 +386,20 @@ private:
 	}
 	void cleanup()
 	{
-		vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
-		vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
-		vkDestroyFence(device, inFlightFence, nullptr);
+		cleanupSwapChain();
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+		{
+			vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
+			vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
+			vkDestroyFence(device, inFlightFences[i], nullptr);
+		}
 
 		vkDestroyCommandPool(device, commandPool, nullptr);
-
-		for (auto framebuffer : swapChainFramebuffers)
-		{
-			vkDestroyFramebuffer(device, framebuffer, nullptr);
-		}
 
 		vkDestroyPipeline(device, graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyRenderPass(device, renderPass, nullptr);
-
-		for (auto imageView : swapChainImageViews)
-		{
-			vkDestroyImageView(device, imageView, nullptr);
-		}
-
-		vkDestroySwapchainKHR(device, swapChain, nullptr);
 
 		vkDestroyDevice(device, nullptr);
 
@@ -643,7 +646,15 @@ private:
 		createInfo.presentMode = presentMode;
 		createInfo.clipped = VK_TRUE;
 
-		createInfo.oldSwapchain = VK_NULL_HANDLE;
+		// Эм.. Как это параша работает??
+		if (oldSwapChain != VK_NULL_HANDLE)
+		{
+			createInfo.oldSwapchain = oldSwapChain;
+		}
+		else
+		{
+			createInfo.oldSwapchain = VK_NULL_HANDLE;
+		}
 
 		if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain) != VK_SUCCESS)
 		{
@@ -761,7 +772,7 @@ private:
 		rasterizer.rasterizerDiscardEnable = VK_FALSE;
 		// Использование любого режима, кроме заполнения, требует включения функции графического процессора.
 		rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-		// любая линия толще 1.0fтребует включения wideLines функции GPU
+		// любая линия толще 1.0f требует включения wideLines функции GPU
 		rasterizer.lineWidth = 1.0f;
 		rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
 		rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
@@ -940,16 +951,18 @@ private:
 			throw std::runtime_error("Failed to create command pool!");
 		}
 	}
-	void createCommandBuffer()
+	void createCommandBuffers()
 	{
+		commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+
 		VkCommandBufferAllocateInfo allocInfo{};
 		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 		allocInfo.commandPool = commandPool;
 		// может быть отправлен в очередь на выполнение, но не может быть вызыван из других буферов команд
 		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		allocInfo.commandBufferCount = 1;
+		allocInfo.commandBufferCount = (uint32_t)commandBuffers.size();
 
-		if (vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer) != VK_SUCCESS)
+		if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS)
 		{
 			throw std::runtime_error("Failed to allocate command buffers!");
 		}
@@ -982,7 +995,7 @@ private:
 		renderPassInfo.renderArea.extent = swapChainExtent;
 
 		// Определяют значения очистки
-		VkClearValue clearColor = { { {0.f, 0.f, 0.f, 1.f} } };
+		VkClearValue clearColor = { { {0.0f, 0.f, 0.f, 1.f} } };
 		renderPassInfo.clearValueCount = 1;
 		renderPassInfo.pClearValues = &clearColor;
 
@@ -1023,6 +1036,10 @@ private:
 	}
 	void createSyncObjects()
 	{
+		imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+
 		VkSemaphoreCreateInfo semaphoreInfo{};
 		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 		semaphoreInfo.pNext = nullptr;  // Дополнительные настройки, обычно nullptr
@@ -1034,39 +1051,55 @@ private:
 		// Ставим первый кадр в сигнализированное положение, иначе мы не сможем понять, что рендеринг был закончен
 		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-		if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS ||
-			vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS ||
-			vkCreateFence(device, &fenceInfo, nullptr, &inFlightFence) != VK_SUCCESS)
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 		{
-			throw std::runtime_error("Failed to create semaphores or fence!");
+			if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
+				vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS ||
+				vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS)
+			{
+				throw std::runtime_error("Failed to create semaphores or fence!");
+			}
 		}
 	}
 
 
 	void drawFrame()
 	{
-		// В начале фрема нам нужно ждать, пока предыдущий фрейм завершиться
-		vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
-
-		// Нам необходимо вручную сбросить сигнал с fence
-		vkResetFences(device, 1, &inFlightFence);
+		// В начале фрейма нам нужно ждать, пока предыдущий фрейм завершиться
+		vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
 		// Получаем картинку из swap chain
 		uint32_t imageIndex;
-		vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+		VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
 
-		// Очищаем все раннее упомянутые команды, буфер переходит в состояние готов к записи.
+		// Если swap chain стал несовместим с поверхностью и больше не может использоваться для рендеринга. Обычно происходит после изменения размера окна
+		if (result == VK_ERROR_OUT_OF_DATE_KHR)
+		{
+			oldSwapChain = swapChain;
+			recreateSwapChain();
+			return;
+		} // swap chain по-прежнему можно использовать для представления на поверхности, но свойства поверхности больше не будут точно соответствовать
+		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+		{
+			throw std::runtime_error("Failed to acquire swap chain image!");
+		}
+
+		// Нам необходимо вручную сбросить сигнал с fence
+		vkResetFences(device, 1, &inFlightFences[currentFrame]);
+
+		// Очищаем все раннее упомянутые команды, буфер переходит в состояние готов к записи
 		// Второй параметр - при VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT освобождает связанный с буфером ресурс
-		vkResetCommandBuffer(commandBuffer, 0);
+		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
 
 		// Начинаем новую запись
-		recordCommandBuffer(commandBuffer, imageIndex);
+		recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
 		// Отправка и синхронизация очереди
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-		VkSemaphore waitSemaphores[] = { imageAvailableSemaphore };
+		VkSemaphore waitSemaphores[] = { imageAvailableSemaphores[currentFrame]};
+		// Ждём стадию, когда цвет уже записан в буфер, но её не отображён на экране. Мы ждём, пока цветовой буфер станет доступным для записи.
 		VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 		submitInfo.waitSemaphoreCount = 1;
 		// Какие семафоры ждём
@@ -1076,15 +1109,15 @@ private:
 
 		// Какие буферы команд фактически следует отправить на выполнение
 		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &commandBuffer;
+		submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
 
 		// Указываем, какие семафоры должны сигнализировать после завершения выполнения буферов команд
-		VkSemaphore signalSemaphores[] = { renderFinishedSemaphore };
+		VkSemaphore signalSemaphores[] = { renderFinishedSemaphores[currentFrame]};
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = signalSemaphores;
 
 		// Отправляем буфер команд в графическую очередь. Говорим, что CPU должно ждать сигнализирование inFlightFence.
-		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence) != VK_SUCCESS)
+		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS)
 		{
 			throw std::runtime_error("Failed to submit draw command buffer!");
 		}
@@ -1093,7 +1126,7 @@ private:
 		VkPresentInfoKHR presentInfo{};
 		presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 
-		// Указываем, какте семаформы следует ждать, прежде чем может произойти представление
+		// Указываем, какие семаформы следует ждать, прежде чем может произойти представление
 		presentInfo.waitSemaphoreCount = 1;
 		presentInfo.pWaitSemaphores = signalSemaphores;
 
@@ -1103,12 +1136,62 @@ private:
 		presentInfo.pSwapchains = swapChains;
 		presentInfo.pImageIndices = &imageIndex;
 
-		// Позволяет указать массив VkResult значений для првоерки каждой отдельной swap chain
+		// Позволяет указать массив VkResult значений для проверки каждой отдельной swap chain
 		presentInfo.pResults = nullptr; // Optional
 
 		// Отправляет запрос на представление изображения в swap chain
-		vkQueuePresentKHR(presentQueue, &presentInfo);
+		result = vkQueuePresentKHR(presentQueue, &presentInfo);
+
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) 
+		{
+			oldSwapChain = swapChain;
+			framebufferResized = false;
+			recreateSwapChain();
+		}
+		else if (result != VK_SUCCESS) 
+		{
+			throw std::runtime_error("Failed to present swap chain image!");
+		}
+
+		// Переход к следующему кадру
+		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
+
+
+	void cleanupSwapChain()
+	{
+		for (auto framebuffer : swapChainFramebuffers)
+		{
+			vkDestroyFramebuffer(device, framebuffer, nullptr);
+		}
+		for (auto imageView : swapChainImageViews)
+		{
+			vkDestroyImageView(device, imageView, nullptr);
+		}
+
+		vkDestroySwapchainKHR(device, swapChain, nullptr);
+	}
+	void recreateSwapChain()
+	{
+		// Мы остановим приложение, если размер окна с какой-либо стороны будет равен 0
+		int width = 0, height = 0;
+		glfwGetFramebufferSize(window, &width, &height);
+		while (width == 0 || height == 0)
+		{
+			glfwGetFramebufferSize(window, &width, &height);
+			glfwWaitEvents();
+		}
+
+		// Вызываем эту функцию для того, чтобы не трогать ресурсы, которые ещё используются
+		vkDeviceWaitIdle(device);
+
+		// cleanupSwapChain();
+
+		createSwapChain();
+		createImageViews();
+		createFramebuffers();
+	}
+	
 
 	static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData)
 	{
@@ -1134,6 +1217,7 @@ private:
 	VkQueue graphicsQueue;
 	VkQueue presentQueue;
 	VkSwapchainKHR swapChain;
+	VkSwapchainKHR oldSwapChain = VK_NULL_HANDLE;
 	std::vector<VkImage> swapChainImages;
 	VkFormat swapChainImageFormat;
 	VkExtent2D swapChainExtent;
@@ -1143,14 +1227,24 @@ private:
 	VkPipeline graphicsPipeline;
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 	VkCommandPool commandPool;
-	VkCommandBuffer commandBuffer;
+	std::vector<VkCommandBuffer> commandBuffers;
 
-	VkSemaphore imageAvailableSemaphore;
-	VkSemaphore renderFinishedSemaphore;
-	VkFence inFlightFence;
+	std::vector<VkSemaphore> imageAvailableSemaphores;
+	std::vector<VkSemaphore> renderFinishedSemaphores;
+	std::vector<VkFence> inFlightFences;
 
 	VkDebugUtilsMessengerEXT debugMessenger;
+
+public:
+	// добавим дополнительный флаг, так как не гарантируется вызов VK_ERROR_OUT_OF_DATE_KHR при имзенении окна
+	bool framebufferResized = false;
 };
+
+static void framebufferResizeCallback(GLFWwindow* window, int width, int height)
+{
+	auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+	app->framebufferResized = true;
+}
 
 int main()
 {
