@@ -42,10 +42,11 @@ struct QueueFamilyIndices
 {
 	std::optional<uint32_t> graphicsFamily;
 	std::optional<uint32_t> presentFamily;
+	std::optional<uint32_t> transferFamily;
 
 	bool isComplete() const
 	{
-		return graphicsFamily.has_value() && presentFamily.has_value();
+		return graphicsFamily.has_value() && presentFamily.has_value() && transferFamily.has_value();
 	}
 };
 
@@ -202,6 +203,10 @@ public:
 				{
 					indices.presentFamily = i;
 				}
+			}
+			if ((queueFamily.queueFlags & VK_QUEUE_TRANSFER_BIT) && !(queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT))
+			{
+				indices.transferFamily = i;
 			}
 
 			if (indices.isComplete())
@@ -434,6 +439,7 @@ private:
 		createFramebuffers();
 		createCommandPool();
 		createVertexBuffer();
+		createIndexBuffer();
 		createCommandBuffers();
 		createSyncObjects();
 	}
@@ -447,12 +453,6 @@ private:
 
 			// Отрисовка
 			drawFrame();
-
-			for (size_t i = 0; i < vertices.size(); ++i)
-			{
-				vertices[i].pos.x = defaultVertices[i].pos.x * glm::sin(5.f);
-			}
-			recopyDate();
 		}
 
 		// Дожидаемся завершения всех операций логического устройства, прежде чем уничтожать его
@@ -461,6 +461,9 @@ private:
 	void cleanup()
 	{
 		cleanupSwapChain();
+
+		vkDestroyBuffer(device, indexBuffer, nullptr);
+		vkFreeMemory(device, indexBufferMemory, nullptr);
 
 		vkDestroyBuffer(device, vertexBuffer, nullptr);
 		vkFreeMemory(device, vertexBufferMemory, nullptr);
@@ -623,7 +626,7 @@ private:
 		QueueFamilyIndices indices = Utils::findQueueFamilies(physicalDevice, surface);
 
 		std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-		std::set<uint32_t> uniqueQueueFamiles = { indices.graphicsFamily.value(), indices.presentFamily.value() };
+		std::set<uint32_t> uniqueQueueFamiles = { indices.graphicsFamily.value(), indices.presentFamily.value(), indices.transferFamily.value() };
 
 		// Даже если очередь одна, нужно обязательно указать приоритет (от 0 до 1)
 		float queuePriority = 1.f;
@@ -669,6 +672,7 @@ private:
 		// 0 - индекс очереди
 		vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
 		vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
+		vkGetDeviceQueue(device, indices.transferFamily.value(), 0, &transferQueue);
 	}
 	void createSwapChain()
 	{
@@ -1030,22 +1034,88 @@ private:
 		{
 			throw std::runtime_error("Failed to create command pool!");
 		}
+
+		// Создание Command Pool для очереди передачи
+		VkCommandPoolCreateInfo TransferPoolInfo{};
+		TransferPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		// Разрешить перезапись command buffer по отдельности
+		TransferPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+		// Мы будемзаписывать команды для рисования, поэтому выбрали семейство графических очередей
+		TransferPoolInfo.queueFamilyIndex = queueFamilyIndices.transferFamily.value();
+
+		if (vkCreateCommandPool(device, &TransferPoolInfo, nullptr, &transferCommandPool) != VK_SUCCESS)
+		{
+			throw std::runtime_error("Failed to create command pool!");
+		}
 	}
 	void createVertexBuffer()
 	{
+		VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+
+		VkBuffer stagingBuffer;
+		VkDeviceMemory stagingBufferMemory;
+		// VK_BUFFER_USAGE_TRANSFER_SRC_BIT - буфер используется как источник трансферной операции
+		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+		// копируем данные вершин в буфер. vkMapMemory - позволяет получить доступ к области указанного ресурса памяти, определённой смещением и размером
+		void* data;
+		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+			memcpy(data, vertices.data(), (size_t)bufferSize); // копирует содердимое одной области памяти в другую
+		vkUnmapMemory(device, stagingBufferMemory);
+
+		// VK_BUFFER_USAGE_TRANSFER_DST_BIT - буфер используется как цель достижения трансферной операции
+		createBuffer(bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
+
+		copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+
+		vkDestroyBuffer(device, stagingBuffer, nullptr);
+		vkFreeMemory(device, stagingBufferMemory, nullptr);
+	}
+	void createIndexBuffer()
+	{
+		VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+
+		VkBuffer stagingBuffer;
+		VkDeviceMemory stagingBufferMemory;
+		// VK_BUFFER_USAGE_TRANSFER_SRC_BIT - буфер используется как источник трансферной операции
+		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+		// копируем данные вершин в буфер. vkMapMemory - позволяет получить доступ к области указанного ресурса памяти, определённой смещением и размером
+		void* data;
+		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+		memcpy(data, indices.data(), (size_t)bufferSize); // копирует содердимое одной области памяти в другую
+		vkUnmapMemory(device, stagingBufferMemory);
+
+		// VK_BUFFER_USAGE_TRANSFER_DST_BIT - буфер используется как цель достижения трансферной операции
+		createBuffer(bufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
+
+		copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+
+		vkDestroyBuffer(device, stagingBuffer, nullptr);
+		vkFreeMemory(device, stagingBufferMemory, nullptr);
+	}
+	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory)
+	{
+		QueueFamilyIndices indices = Utils::findQueueFamilies(physicalDevice, surface);
+
 		VkBufferCreateInfo bufferInfo{};
 		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 		// Указываем размер буфера в байтах по массиву вершин
-		bufferInfo.size = sizeof(vertices[0]) * vertices.size();
-		// Указывает для каких целей будет использовать буфер. Указываем, что будет использовать вершинный буфер
-		bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+		bufferInfo.size = size;
+		// Указывает для каких целей будет использовать буфер. Указываем, что будет использовать вершинный буфер и для трансфера
+		bufferInfo.usage = usage;
 		// буферы так же как и swap chain могут принадлежать определённому семейству очередей или быть общими для нескольких одновременно.
 		// Наш буфер будет использовать только из графической очереди, поэтому мы можем придерживать эксклюзивного доступа.
-		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		bufferInfo.sharingMode = VK_SHARING_MODE_CONCURRENT;
 		// Используется для разрежённой памяти буфера.
 		bufferInfo.flags = 0;
 
-		if (vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS)
+		// Говорим, какие очереди могут использовать буфер
+		uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.transferFamily.value() };
+		bufferInfo.queueFamilyIndexCount = 2;
+		bufferInfo.pQueueFamilyIndices = queueFamilyIndices;
+
+		if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS)
 		{
 			throw std::runtime_error("Failed to create vertex buffer!");
 		}
@@ -1053,7 +1123,7 @@ private:
 		// Буфер создан, но у него ещё нет выделенной памяти.
 		// Первый шаг в выделении памяти для буфера - это запрос его требований к памяти с помощью функции:
 		VkMemoryRequirements memRequirements;
-		vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
+		vkGetBufferMemoryRequirements(device, buffer, &memRequirements);
 		// Структура VkMemoryRequirements содержит три поля:
 		// 1) size: Размер необходимой памяти в байтах, который может отличаться от bufferInfo.size.
 		// 2) alignment: Смещение в байтах, с которого начинается буфер в выделенной области памяти. Оно зависит от bufferInfo.usage и bufferInfo.flags.
@@ -1062,36 +1132,51 @@ private:
 		VkMemoryAllocateInfo allocInfo{};
 		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 		allocInfo.allocationSize = memRequirements.size;
-		allocInfo.memoryTypeIndex = Utils::findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, physicalDevice);
+		allocInfo.memoryTypeIndex = Utils::findMemoryType(memRequirements.memoryTypeBits, properties, physicalDevice);
 
-		if (vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS)
+		if (vkAllocateMemory(device, &allocInfo, nullptr, &bufferMemory) != VK_SUCCESS)
 		{
 			throw std::runtime_error("Failed to allocate vertex buffer memory!");
 		}
 		// При удачном выделении связываем буфер с памятью под буфер
 		// - 4 параметр - смещение внутри области памяти. Поскольку эта память выделена специально для этого буфера вершин, смещение просто равно 0. 
 		// Если смещение не равно нулю, то оно должно делиться на memRequirements.alignment.
-		vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
-
-		// копируем данные вершин в буфер. vkMapMemory - позволяет получить доступ к области указанного ресурса памяти, определённой смещением и размером
-		void* data;
-		vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
-			memcpy(data, vertices.data(), (size_t)bufferInfo.size); // копирует содердимое одной области памяти в другую
-		vkUnmapMemory(device, vertexBufferMemory);
+		vkBindBufferMemory(device, buffer, bufferMemory, 0);
 	}
-	void recopyDate()
+	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
 	{
-		VkBufferCreateInfo bufferInfo{};
-		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-		bufferInfo.size = sizeof(vertices[0]) * vertices.size();
-		bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		bufferInfo.flags = 0;
+		VkCommandBufferAllocateInfo allocInfo{};
+		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		allocInfo.commandPool = transferCommandPool;
+		allocInfo.commandBufferCount = 1;
 
-		void* data;
-		vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
-		memcpy(data, vertices.data(), (size_t)bufferInfo.size); // копирует содердимое одной области памяти в другую
-		vkUnmapMemory(device, vertexBufferMemory);
+		VkCommandBuffer commandBuffer;
+		vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+
+		VkCommandBufferBeginInfo beginInfo{};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		// Мы собираемся использовать буфер команд только один раз и ждать с возвратом из функции, пока операция копирования не завершится.
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+		vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+		VkBufferCopy copyRegion{};
+		copyRegion.srcOffset = 0; // Optional
+		copyRegion.dstOffset = 0; // Optional
+		copyRegion.size = size;
+		vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+		vkEndCommandBuffer(commandBuffer);
+
+		VkSubmitInfo submitInfo{};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &commandBuffer;
+
+		vkQueueSubmit(transferQueue, 1, &submitInfo, VK_NULL_HANDLE);
+		vkQueueWaitIdle(transferQueue);
+
+		vkFreeCommandBuffers(device, transferCommandPool, 1, &commandBuffer);
 	}
 	void createCommandBuffers()
 	{
@@ -1151,6 +1236,9 @@ private:
 		VkDeviceSize offsets[] = { 0 };
 		vkCmdBindVertexBuffers(commandBufferIn, 0, 1, vertexBuffers, offsets);
 
+		// биндим буфер индексов
+		vkCmdBindIndexBuffer(commandBufferIn, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+
 		// Так viewport и scissor у нас динамические:
 		VkViewport viewport{};
 		viewport.x = 0.0f;
@@ -1170,7 +1258,9 @@ private:
 		// 3 - используется для рендеринга экземпляра (устанавливаем 1, если мы этого не делаем)
 		// 4 - смещение в буфере вершин, определяет наименьшее значение gl_VertexIndex
 		// 5 - смещение для рендеринга экземпляров, определяет наименьшее значение gl_InstanceIndex.
-		vkCmdDraw(commandBufferIn, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+		// vkCmdDraw(commandBufferIn, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+
+		vkCmdDrawIndexed(commandBufferIn, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
 		// завершение прохода рендеринга
 		vkCmdEndRenderPass(commandBufferIn);
@@ -1363,6 +1453,7 @@ private:
 	VkDevice device;
 	VkQueue graphicsQueue;
 	VkQueue presentQueue;
+	VkQueue transferQueue;
 	VkSwapchainKHR swapChain;
 	VkSwapchainKHR oldSwapChain = VK_NULL_HANDLE;
 	std::vector<VkImage> swapChainImages;
@@ -1374,8 +1465,11 @@ private:
 	VkPipeline graphicsPipeline;
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 	VkCommandPool commandPool;
+	VkCommandPool transferCommandPool;
 	VkBuffer vertexBuffer;
 	VkDeviceMemory vertexBufferMemory;
+	VkBuffer indexBuffer;
+	VkDeviceMemory indexBufferMemory;
 	std::vector<VkCommandBuffer> commandBuffers;
 
 	std::vector<VkSemaphore> imageAvailableSemaphores;
@@ -1384,15 +1478,14 @@ private:
 
 	VkDebugUtilsMessengerEXT debugMessenger;
 
-	std::vector<Vertex> vertices = {
-		{ { 0.f, -0.5f }, { 1.0f, 0.0f, 0.0f } },
-		{ { 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f } },
-		{ { -0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f } }
+	const std::vector<Vertex> vertices = {
+		{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+		{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+		{{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+		{{-0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}}
 	};
-	std::vector<Vertex> defaultVertices = {
-		{ { 0.f, -0.5f }, { 1.0f, 0.0f, 0.0f } },
-		{ { 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f } },
-		{ { -0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f } }
+	const std::vector<uint16_t> indices = {
+		0, 1, 2, 2, 3, 0
 	};
 
 public:
