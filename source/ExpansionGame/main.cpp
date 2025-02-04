@@ -6,6 +6,7 @@
 
 #include <iostream>
 #include <vector>
+#include <array>
 #include <set>
 #include <stdexcept>
 #include <cstdlib>
@@ -14,6 +15,7 @@
 #include <cstdint> // Necessary for uint32_t
 #include <algorithm> // Necessary for std::clamp
 #include <fstream>
+#include <glm/glm.hpp>
 
 static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
 
@@ -54,6 +56,48 @@ struct SwapChainSupportDetails
 	std::vector<VkPresentModeKHR> presentModes;
 };
 
+struct Vertex
+{
+	glm::vec2 pos;
+	glm::vec3 color;
+
+	static VkVertexInputBindingDescription getBindingDescription() 
+	{
+		VkVertexInputBindingDescription bindingDescription{};
+
+		// индекс привязки в массиве привязок (если несколько массивов для данных вершин)
+		bindingDescription.binding = 0;
+		// Указывает количество байтов от одной записи до другой
+		bindingDescription.stride = sizeof(Vertex);
+		// Переход к следующей записи данных после каждой вершины
+		bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+		return bindingDescription;
+	}
+	static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions()
+	{
+		std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+
+		// Из какой привязки поступают данные вершин (binding)
+		attributeDescriptions[0].binding = 0;
+		// Ссылается на директиву ввода в вершинной шейдере
+		attributeDescriptions[0].location = 0;
+		// Описывет тип данных атрибута. Говорим, что ввод в вершинном шейдере с местоположением 0 - это позиция, которая имеет два 32-битных компонента с плавающей точкой
+		// Также неявно определяет размер байта атрибута
+		attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+		// Указывает количество байтов с начала данных по вершинам для чтения
+		attributeDescriptions[0].offset = offsetof(Vertex, pos);
+		// offsetof - возвращает смещение в байтах от начала структуры
+
+		attributeDescriptions[1].binding = 0;
+		attributeDescriptions[1].location = 1;
+		attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+		attributeDescriptions[1].offset = offsetof(Vertex, color);
+
+		return attributeDescriptions;
+	}
+};
+
 class Utils
 {
 public:
@@ -87,6 +131,8 @@ public:
 		}
 
 		std::cout << "All required extensions are available for " << Object << "!" << std::endl;
+
+		return true;
 	}
 	static bool checkValidationLayerSupport()
 	{
@@ -271,6 +317,27 @@ public:
 		return shaderModule;
 	}
 
+	// Видеокарты предоставляют различные типы памяти для выделения.
+	static uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, VkPhysicalDevice physicalDevice)
+	{
+		// Получаем информацию о доступныых типах памяти
+		VkPhysicalDeviceMemoryProperties memProperties;
+		vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+		// Структура VkPhysicalDeviceMemoryProperties содержит два массива:
+		// 1) memoryTypes — список типов памяти.
+		// 2) memoryHeaps — отдельные пуллы памяти, такие как выделенная видеопамять(VRAM) и область подкачки в оперативной памяти(RAM), используемая при нехватке VRAM.
+
+		for (uint32_t i = 0; i < memProperties.memoryTypeCount; ++i)
+		{
+			if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties)
+			{
+				return i;
+			}
+		}
+
+		throw std::runtime_error("Failed to find suitable memory type!");
+	}
+
 
 	// Читает все байты из указанного файла и возвращает их в массив байтов
 	static std::vector<char> readFile(const std::string& filename)
@@ -366,6 +433,7 @@ private:
 		createGraphicsPipeline();
 		createFramebuffers();
 		createCommandPool();
+		createVertexBuffer();
 		createCommandBuffers();
 		createSyncObjects();
 	}
@@ -379,6 +447,12 @@ private:
 
 			// Отрисовка
 			drawFrame();
+
+			for (size_t i = 0; i < vertices.size(); ++i)
+			{
+				vertices[i].pos.x = defaultVertices[i].pos.x * glm::sin(5.f);
+			}
+			recopyDate();
 		}
 
 		// Дожидаемся завершения всех операций логического устройства, прежде чем уничтожать его
@@ -387,6 +461,9 @@ private:
 	void cleanup()
 	{
 		cleanupSwapChain();
+
+		vkDestroyBuffer(device, vertexBuffer, nullptr);
+		vkFreeMemory(device, vertexBufferMemory, nullptr);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 		{
@@ -724,12 +801,15 @@ private:
 		VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
 
 		// создание структур для vertex input. Этот этап отвечает за настройку вершинных данных (положение, цвет и т.д.)
+		VkVertexInputBindingDescription bindingDescription = Vertex::getBindingDescription();
+		std::array<VkVertexInputAttributeDescription, 2> attributeDescription = Vertex::getAttributeDescriptions();
+
 		VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-		vertexInputInfo.vertexBindingDescriptionCount = 0;
-		vertexInputInfo.pVertexBindingDescriptions = nullptr;
-		vertexInputInfo.vertexAttributeDescriptionCount = 0;
-		vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+		vertexInputInfo.vertexBindingDescriptionCount = 1;
+		vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+		vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescription.size());
+		vertexInputInfo.pVertexAttributeDescriptions = attributeDescription.data();
 
 		// создание структуры, описывающей как рисовать примитивы
 		VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
@@ -951,6 +1031,68 @@ private:
 			throw std::runtime_error("Failed to create command pool!");
 		}
 	}
+	void createVertexBuffer()
+	{
+		VkBufferCreateInfo bufferInfo{};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		// Указываем размер буфера в байтах по массиву вершин
+		bufferInfo.size = sizeof(vertices[0]) * vertices.size();
+		// Указывает для каких целей будет использовать буфер. Указываем, что будет использовать вершинный буфер
+		bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+		// буферы так же как и swap chain могут принадлежать определённому семейству очередей или быть общими для нескольких одновременно.
+		// Наш буфер будет использовать только из графической очереди, поэтому мы можем придерживать эксклюзивного доступа.
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		// Используется для разрежённой памяти буфера.
+		bufferInfo.flags = 0;
+
+		if (vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS)
+		{
+			throw std::runtime_error("Failed to create vertex buffer!");
+		}
+
+		// Буфер создан, но у него ещё нет выделенной памяти.
+		// Первый шаг в выделении памяти для буфера - это запрос его требований к памяти с помощью функции:
+		VkMemoryRequirements memRequirements;
+		vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
+		// Структура VkMemoryRequirements содержит три поля:
+		// 1) size: Размер необходимой памяти в байтах, который может отличаться от bufferInfo.size.
+		// 2) alignment: Смещение в байтах, с которого начинается буфер в выделенной области памяти. Оно зависит от bufferInfo.usage и bufferInfo.flags.
+		// 3) memoryTypeBit: Битовое поле типов памяти, которые подходят для буфера.
+
+		VkMemoryAllocateInfo allocInfo{};
+		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		allocInfo.allocationSize = memRequirements.size;
+		allocInfo.memoryTypeIndex = Utils::findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, physicalDevice);
+
+		if (vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS)
+		{
+			throw std::runtime_error("Failed to allocate vertex buffer memory!");
+		}
+		// При удачном выделении связываем буфер с памятью под буфер
+		// - 4 параметр - смещение внутри области памяти. Поскольку эта память выделена специально для этого буфера вершин, смещение просто равно 0. 
+		// Если смещение не равно нулю, то оно должно делиться на memRequirements.alignment.
+		vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+
+		// копируем данные вершин в буфер. vkMapMemory - позволяет получить доступ к области указанного ресурса памяти, определённой смещением и размером
+		void* data;
+		vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+			memcpy(data, vertices.data(), (size_t)bufferInfo.size); // копирует содердимое одной области памяти в другую
+		vkUnmapMemory(device, vertexBufferMemory);
+	}
+	void recopyDate()
+	{
+		VkBufferCreateInfo bufferInfo{};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = sizeof(vertices[0]) * vertices.size();
+		bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		bufferInfo.flags = 0;
+
+		void* data;
+		vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+		memcpy(data, vertices.data(), (size_t)bufferInfo.size); // копирует содердимое одной области памяти в другую
+		vkUnmapMemory(device, vertexBufferMemory);
+	}
 	void createCommandBuffers()
 	{
 		commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
@@ -1004,6 +1146,11 @@ private:
 		// Привязывание pipeline:
 		vkCmdBindPipeline(commandBufferIn, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
+		// Привязаем буферы вершин к привязкам
+		VkBuffer vertexBuffers[] = { vertexBuffer };
+		VkDeviceSize offsets[] = { 0 };
+		vkCmdBindVertexBuffers(commandBufferIn, 0, 1, vertexBuffers, offsets);
+
 		// Так viewport и scissor у нас динамические:
 		VkViewport viewport{};
 		viewport.x = 0.0f;
@@ -1023,7 +1170,7 @@ private:
 		// 3 - используется для рендеринга экземпляра (устанавливаем 1, если мы этого не делаем)
 		// 4 - смещение в буфере вершин, определяет наименьшее значение gl_VertexIndex
 		// 5 - смещение для рендеринга экземпляров, определяет наименьшее значение gl_InstanceIndex.
-		vkCmdDraw(commandBufferIn, 3, 1, 0, 0);
+		vkCmdDraw(commandBufferIn, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
 
 		// завершение прохода рендеринга
 		vkCmdEndRenderPass(commandBufferIn);
@@ -1227,6 +1374,8 @@ private:
 	VkPipeline graphicsPipeline;
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 	VkCommandPool commandPool;
+	VkBuffer vertexBuffer;
+	VkDeviceMemory vertexBufferMemory;
 	std::vector<VkCommandBuffer> commandBuffers;
 
 	std::vector<VkSemaphore> imageAvailableSemaphores;
@@ -1234,6 +1383,17 @@ private:
 	std::vector<VkFence> inFlightFences;
 
 	VkDebugUtilsMessengerEXT debugMessenger;
+
+	std::vector<Vertex> vertices = {
+		{ { 0.f, -0.5f }, { 1.0f, 0.0f, 0.0f } },
+		{ { 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f } },
+		{ { -0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f } }
+	};
+	std::vector<Vertex> defaultVertices = {
+		{ { 0.f, -0.5f }, { 1.0f, 0.0f, 0.0f } },
+		{ { 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f } },
+		{ { -0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f } }
+	};
 
 public:
 	// добавим дополнительный флаг, так как не гарантируется вызов VK_ERROR_OUT_OF_DATE_KHR при имзенении окна
