@@ -4,6 +4,7 @@ opengl/system
 glfw/3.4
 glm/cci.20230113
 glew/2.2.0
+stb/cci.20240531
 
 [generators]
 CMakeDeps
